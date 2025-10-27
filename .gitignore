@@ -1,0 +1,15 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+crash.log
+
+# Local OS files
+.DS_Store
+Thumbs.db
+
+# SSH keys
+*.pem
+*.pub
