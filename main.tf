@@ -8,8 +8,11 @@ variable "ami_id" {
 # Create an AWS key pair from your local public key file
 resource "aws_key_pair" "deployer" {
   key_name   = var.key_pair_name
-  public_key = file(var.public_key_path)
+
+  # prefer public_key_content (from CI secrets); if empty you can still use local file by setting the var when running locally.
+  public_key = var.public_key_content
 }
+
 
 # Security group allowing SSH and HTTP
 resource "aws_security_group" "ssh_http" {
@@ -46,39 +49,44 @@ resource "aws_security_group" "ssh_http" {
 }
 
 # EC2 instance - installs Nginx and deploys GitHub project automatically
+
 resource "aws_instance" "web" {
-  ami                    = var.ami_id
-  instance_type          = var.instance_type
-  key_name               = aws_key_pair.deployer.key_name
-  vpc_security_group_ids = [aws_security_group.ssh_http.id]
+ami                    = var.ami_id
+instance_type          = var.instance_type
+key_name               = "john-ec2-key"  # <- static key name
+vpc_security_group_ids = [aws_security_group.ssh_http.id]
 
-  # user_data script installs nginx + deploys website from GitHub
-  user_data = <<-EOF
-    #!/bin/bash
-    set -e
+# user_data script installs nginx + deploys website from GitHub
 
-    # Update and install dependencies
-    apt-get update -y
-    apt-get install -y nginx git
+user_data = <<-EOF
+#!/bin/bash
+set -e
 
-    # Remove default Nginx files
-    rm -rf /var/www/html/*
+```
+# Update and install dependencies
+apt-get update -y
+apt-get install -y nginx git
 
-    # Clone your GitHub repository (change URL if needed)
-    git clone https://github.com/Adetola-Adedoyin/EduCloud-frontend-app.git /var/www/html/
+# Remove default Nginx files
+rm -rf /var/www/html/*
 
-    # Set permissions
-    chown -R www-data:www-data /var/www/html
-    chmod -R 755 /var/www/html
+# Clone your GitHub repository (change URL if needed)
+git clone https://github.com/Adetola-Adedoyin/EduCloud-frontend-app.git /var/www/html/
 
-    # Enable and restart Nginx
-    systemctl enable nginx
-    systemctl restart nginx
-  EOF
+# Set permissions
+chown -R www-data:www-data /var/www/html
+chmod -R 755 /var/www/html
 
-  tags = {
-    Name = "terraform-nginx"
-  }
+# Enable and restart Nginx
+systemctl enable nginx
+systemctl restart nginx
+```
+
+EOF
+
+tags = {
+Name = "terraform-nginx"
+}
 }
 
 # (Optional) associate an Elastic IP so IP doesn't change on stop/start
