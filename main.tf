@@ -1,12 +1,29 @@
+# Specify the required provider and version
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+
+  required_version = ">= 1.5.0"
+}
+
+# Configure AWS provider
+provider "aws" {
+  region = var.aws_region
+}
+
 # Get default VPC
 data "aws_vpc" "default" {
   default = true
 }
 
-# Create Key Pair from your local public key
+# Create Key Pair using the public key from GitHub secret
 resource "aws_key_pair" "ec2_key" {
-  key_name   = "john-ec2-key"
-  public_key = file("C:/Users/Hewlett Packard/.ssh/id_rsa.pub")
+  key_name   = var.key_pair_name
+  public_key = var.public_key_content
 }
 
 # Security Group for SSH + HTTP
@@ -19,7 +36,7 @@ resource "aws_security_group" "web_sg" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.allowed_ssh_cidr]
   }
 
   ingress {
@@ -41,11 +58,11 @@ resource "aws_security_group" "web_sg" {
   }
 }
 
-# EC2 Instance
+# EC2 Instance - Ubuntu + Nginx Install
 resource "aws_instance" "nginx_server" {
-  ami           = "ami-0360c520857e3138f" # Ubuntu 22.04 us-east-1
-  instance_type = "t3.micro"
-  key_name      = "john-ec2-key"
+  ami                    = "ami-0360c520857e3138f" # Ubuntu 22.04 LTS for us-east-1
+  instance_type          = "t3.micro"
+  key_name               = aws_key_pair.ec2_key.key_name
   vpc_security_group_ids = [aws_security_group.web_sg.id]
 
   tags = {
@@ -53,7 +70,7 @@ resource "aws_instance" "nginx_server" {
   }
 }
 
-# Elastic IP
+# Elastic IP for stable public IP
 resource "aws_eip" "web_eip" {
   instance = aws_instance.nginx_server.id
   domain   = "vpc"

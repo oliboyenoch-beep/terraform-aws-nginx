@@ -21,3 +21,8 @@ variable "allowed_ssh_cidr" {
   type        = string
   default     = "0.0.0.0/0"
 }
+
+variable "public_key_content" {
+  description = "Public SSH key content used for EC2 key pair"
+  type        = string
+}

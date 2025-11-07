@@ -14,6 +14,7 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_REGION: us-east-1
+      PUBLIC_KEY_CONTENT: ${{ secrets.PUBLIC_KEY_CONTENT }}
 
     steps:
       - name: Checkout repository
@@ -28,7 +29,8 @@ jobs:
         run: terraform init -reconfigure
 
       - name: Terraform Plan
-        run: terraform plan -out=tfplan
+        run: terraform plan -out=tfplan \
+          -var="public_key_content=${{ secrets.PUBLIC_KEY_CONTENT }}"
 
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
