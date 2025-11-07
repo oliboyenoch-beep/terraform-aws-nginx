@@ -46,8 +46,6 @@ jobs:
         run: sleep 60
 
       - name: SSH and install Nginx
-        env:
-          PUBLIC_IP: ${{ env.PUBLIC_IP }}
         run: |
           echo "Connecting to EC2 at $PUBLIC_IP..."
           ssh -o StrictHostKeyChecking=no -i private_key.pem ubuntu@$PUBLIC_IP << 'EOF'
