@@ -1,18 +1,22 @@
-name: Terraform Apply
+name: Terraform Deploy with SSH Nginx Setup
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
 
 jobs:
-  terraform:
-    name: 'Terraform Deploy'
+  deploy:
+    name: Terraform Apply and Install Nginx
     runs-on: ubuntu-latest
 
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: us-east-1
+
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Terraform
@@ -20,18 +24,38 @@ jobs:
         with:
           terraform_version: 1.9.5
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-
       - name: Terraform Init
-        run: terraform init
+        run: terraform init -reconfigure
 
       - name: Terraform Plan
-        run: terraform plan
+        run: terraform plan -out=tfplan
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve
+        run: terraform apply -auto-approve tfplan
+
+      - name: Get EC2 Public IP
+        id: get_ip
+        run: echo "PUBLIC_IP=$(terraform output -raw public_ip)" >> $GITHUB_ENV
+
+      - name: Create private key file
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" > private_key.pem
+          chmod 600 private_key.pem
+
+      - name: Wait for instance to be ready
+        run: sleep 60
+
+      - name: SSH and install Nginx
+        env:
+          PUBLIC_IP: ${{ env.PUBLIC_IP }}
+        run: |
+          echo "Connecting to EC2 at $PUBLIC_IP..."
+          ssh -o StrictHostKeyChecking=no -i private_key.pem ubuntu@$PUBLIC_IP << 'EOF'
+            sudo apt update -y
+            sudo apt install nginx -y
+            sudo systemctl enable nginx
+            sudo systemctl start nginx
+          EOF
+
+      - name: Cleanup key
+        run: rm -f private_key.pem
