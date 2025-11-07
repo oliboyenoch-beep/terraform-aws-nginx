@@ -1,17 +1,18 @@
 terraform {
-  required_version = ">= 1.0"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
   }
+
+  required_version = ">= 1.5.0"
+
+  backend "local" {
+    path = "terraform.tfstate"
+  }
 }
 
 provider "aws" {
-  region = var.aws_region
+  region = "us-east-1"
 }
-# Remove or comment out this block in backend-setup.tf
-# provider "aws" {
-#   region = "us-east-1"
-# }

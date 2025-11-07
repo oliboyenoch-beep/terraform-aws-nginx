@@ -3,7 +3,7 @@ output "instance_id" {
 }
 
 output "public_ip" {
-  value = coalesce(aws_eip.web_eip.public_ip, aws_instance.nginx_server.public_ip)
+  value = aws_instance.nginx_server.public_ip
 }
 
 output "public_dns" {
