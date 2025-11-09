@@ -14,14 +14,19 @@ jobs:
       AWS_REGION: us-east-1
 
     steps:
+      # Step 1: Checkout repository (ensures latest code)
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # ensures full history, avoids stale state
 
+      # Step 2: Setup Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.5
 
+      # Step 3: Configure AWS credentials
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -29,13 +34,16 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
+      # Step 4: Terraform Init (reconfigure ensures no stale state)
       - name: Terraform Init
         run: terraform init -reconfigure
 
+      # Step 5: Terraform Validate
       - name: Terraform Validate
         run: terraform validate
 
-      - name: Terraform Plan (create tfplan)
+      # Step 6: Terraform Plan (create tfplan)
+      - name: Terraform Plan
         env:
           TF_LOG_PATH: ${{ github.workspace }}/tf.log
         run: |
@@ -45,34 +53,34 @@ jobs:
             -input=false \
             -var="public_key_content=${{ secrets.PUBLIC_SSH_KEY }}" \
             -no-color || {
-
               echo "Terraform plan failed. Dumping TF log."
               terraform plan -no-color -var="public_key_content=${{ secrets.PUBLIC_SSH_KEY }}" || true
-
               if [ -f tf.log ]; then
                 echo "---- TF_LOG (last 200 lines) ----"
                 tail -n 200 tf.log || true
               fi
-
               exit 1
           }
-
           echo "✅ Terraform plan succeeded — summary below:"
           terraform show -no-color tfplan | sed -n '1,200p'
 
+      # Step 7: Terraform Apply
       - name: Terraform Apply
         run: terraform apply -input=false -auto-approve tfplan
 
+      # Step 8: Get EC2 Public IP
       - name: Get EC2 Public IP
         id: get_ip
         run: echo "PUBLIC_IP=$(terraform output -raw public_ip)" >> $GITHUB_ENV
 
+      # Step 9: Create private key file
       - name: Create private key file
         run: |
           printf '%s\n' "${{ secrets.EC2_SSH_KEY }}" > private_key.pem
           chmod 600 private_key.pem
 
-      - name: Wait for SSH to become available
+      # Step 10: Wait for SSH to become available
+      - name: Wait for SSH
         run: |
           echo "Waiting for SSH on $PUBLIC_IP..."
           for i in $(seq 1 30); do
@@ -87,7 +95,8 @@ jobs:
           echo "❌ SSH did not become available" >&2
           exit 1
 
-      - name: SSH and install Nginx
+      # Step 11: SSH and install NGINX
+      - name: SSH and install NGINX
         run: |
           echo "Installing NGINX on EC2..."
           ssh -o StrictHostKeyChecking=no -i private_key.pem ubuntu@"$PUBLIC_IP" <<'EOF'
@@ -100,6 +109,7 @@ jobs:
             echo "✅ NGINX installed and running!"
           EOF
 
+      # Step 12: Cleanup private key
       - name: Cleanup key
         if: always()
         run: rm -f private_key.pem
