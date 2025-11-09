@@ -12,7 +12,6 @@ jobs:
 
     env:
       AWS_REGION: us-east-1
-      PUBLIC_KEY_CONTENT: ${{ secrets.PUBLIC_KEY_CONTENT }}
 
     steps:
       - name: Checkout repository
@@ -28,7 +27,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: us-east-1
 
       - name: Terraform Init
         run: terraform init -reconfigure
@@ -40,19 +39,25 @@ jobs:
         env:
           TF_LOG_PATH: ${{ github.workspace }}/tf.log
         run: |
-          # make plan non-interactive and output to tfplan
           set -o pipefail
-          terraform plan -out=tfplan -input=false -var="public_key_content=${{ secrets.PUBLIC_KEY_CONTENT }}" -no-color || {
-            echo "Terraform plan failed; dumping last plan attempt and TF log for diagnostics."
-            # try a plain plan to show human-readable errors
-            terraform plan -no-color -var="public_key_content=${{ secrets.PUBLIC_KEY_CONTENT }}" || true
-            if [ -f tf.log ]; then
-              echo "---- TF_LOG (truncated) ----"
-              tail -n 200 tf.log || true
-            fi
-            exit 1
+          terraform plan \
+            -out=tfplan \
+            -input=false \
+            -var="public_key_content=${{ secrets.PUBLIC_SSH_KEY }}" \
+            -no-color || {
+
+              echo "Terraform plan failed. Dumping TF log."
+              terraform plan -no-color -var="public_key_content=${{ secrets.PUBLIC_SSH_KEY }}" || true
+
+              if [ -f tf.log ]; then
+                echo "---- TF_LOG (last 200 lines) ----"
+                tail -n 200 tf.log || true
+              fi
+
+              exit 1
           }
-          echo "Terraform plan succeeded, showing plan summary:"
+
+          echo "✅ Terraform plan succeeded — summary below:"
           terraform show -no-color tfplan | sed -n '1,200p'
 
       - name: Terraform Apply
@@ -64,7 +69,6 @@ jobs:
 
       - name: Create private key file
         run: |
-          # Use printf to preserve newlines safely
           printf '%s\n' "${{ secrets.EC2_SSH_KEY }}" > private_key.pem
           chmod 600 private_key.pem
 
@@ -72,16 +76,20 @@ jobs:
         run: |
           echo "Waiting for SSH on $PUBLIC_IP..."
           for i in $(seq 1 30); do
-            ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -i private_key.pem ubuntu@"$PUBLIC_IP" 'echo SSH_OK' >/dev/null 2>&1 && { echo "SSH available"; exit 0; }
-            echo "Attempt $i: SSH not ready yet, sleeping 10s..."
+            ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
+                -i private_key.pem ubuntu@"$PUBLIC_IP" 'echo SSH_OK' >/dev/null 2>&1 && {
+                  echo "✅ SSH is ready"
+                  exit 0
+                }
+            echo "Attempt $i: SSH not ready, retrying in 10s..."
             sleep 10
           done
-          echo "SSH did not become available after timeout" >&2
+          echo "❌ SSH did not become available" >&2
           exit 1
 
       - name: SSH and install Nginx
         run: |
-          echo "Connecting to EC2 at $PUBLIC_IP and installing nginx..."
+          echo "Installing NGINX on EC2..."
           ssh -o StrictHostKeyChecking=no -i private_key.pem ubuntu@"$PUBLIC_IP" <<'EOF'
             set -e
             sudo apt-get update -y
@@ -89,7 +97,7 @@ jobs:
             sudo systemctl enable nginx
             sudo systemctl start nginx
             sudo systemctl status nginx --no-pager
-            echo "NGINX installed and started"
+            echo "✅ NGINX installed and running!"
           EOF
 
       - name: Cleanup key
