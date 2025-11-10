@@ -101,5 +101,7 @@ resource "aws_instance" "web" {
   tags = {
     Name = "terraform-ec2-web"
   }
+  
+  # Trigger deployment
 }
 
