@@ -41,8 +41,8 @@ data "aws_ec2_instance_types" "free_tier" {
   }
   
   filter {
-    name   = "current-generation"
-    values = ["true"]
+    name   = "processor-info.supported-architecture"
+    values = ["x86_64"]
   }
 }
 
