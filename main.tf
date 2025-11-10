@@ -34,18 +34,6 @@ data "aws_subnets" "default" {
   }
 }
 
-data "aws_ec2_instance_types" "free_tier" {
-  filter {
-    name   = "free-tier-eligible"
-    values = ["true"]
-  }
-  
-  filter {
-    name   = "processor-info.supported-architecture"
-    values = ["x86_64"]
-  }
-}
-
 # =======================
 # Key Pair (Dynamic from CI/CD)
 # =======================
