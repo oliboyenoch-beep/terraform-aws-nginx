@@ -1,145 +1,89 @@
-name: Terraform Deploy with SSH Nginx Setup
+name: Deploy Infrastructure and Install Nginx
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
   deploy:
-    name: Terraform Apply and Install Nginx
     runs-on: ubuntu-latest
-
-    env:
-      AWS_REGION: us-east-1
-
+    
     steps:
-      # Step 1: Checkout repository
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      # Step 2: Setup Terraform
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.9.5
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.9.5
 
-      # Step 3: Configure AWS credentials
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
 
-      # Step 4: Terraform Init
-      - name: Terraform Init
-        run: terraform init -reconfigure
+    - name: Generate SSH key pair
+      run: |
+        ssh-keygen -t rsa -b 4096 -f ~/.ssh/terraform_key -N ""
+        chmod 600 ~/.ssh/terraform_key
+        
+        TIMESTAMP=$(date +%s)
+        KEY_NAME="terraform-key-${TIMESTAMP}"
+        PUBLIC_KEY=$(cat ~/.ssh/terraform_key.pub)
+        
+        echo "KEY_NAME=$KEY_NAME" >> $GITHUB_ENV
+        echo "PUBLIC_KEY=$PUBLIC_KEY" >> $GITHUB_ENV
 
-      # Step 5: Terraform Validate
-      - name: Terraform Validate
-        run: terraform validate
+    - name: Terraform Init
+      run: terraform init
 
-      # Step 6: Generate SSH Key Pair
-      - name: Generate SSH Key Pair
-        run: |
-          ssh-keygen -t rsa -b 4096 -f private_key.pem -N ""
-          chmod 600 private_key.pem
-          echo "PUBLIC_KEY_CONTENT=$(cat private_key.pem.pub)" >> $GITHUB_ENV
+    - name: Terraform Plan
+      run: |
+        terraform plan \
+          -var="key_name=$KEY_NAME" \
+          -var="public_key=$PUBLIC_KEY" \
+          -out=tfplan
 
-      # Step 7: Terraform Plan
-      - name: Terraform Plan
-        run: |
-          TIMESTAMP=$(date +%s)
-          RANDOM_ID=$(openssl rand -hex 2)
+    - name: Terraform Apply
+      run: terraform apply -auto-approve tfplan
 
-          KEY_NAME="john-ec2-key-${TIMESTAMP}-${RANDOM_ID}"
-          SG_NAME="nginx-sg-${TIMESTAMP}-${RANDOM_ID}"
+    - name: Get instance details
+      run: |
+        echo "INSTANCE_IP=$(terraform output -raw public_ip)" >> $GITHUB_ENV
+        echo "INSTANCE_ID=$(terraform output -raw instance_id)" >> $GITHUB_ENV
 
-          echo "KEY_NAME=$KEY_NAME" >> $GITHUB_ENV
-          echo "SG_NAME=$SG_NAME" >> $GITHUB_ENV
+    - name: Wait for instance to be ready
+      run: |
+        echo "Waiting for instance to be running..."
+        aws ec2 wait instance-running --instance-ids $INSTANCE_ID
+        
+        echo "Waiting for SSH to be available..."
+        for i in {1..20}; do
+          if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
+             -i ~/.ssh/terraform_key ubuntu@$INSTANCE_IP 'echo "SSH Ready"' 2>/dev/null; then
+            echo "SSH is ready!"
+            break
+          fi
+          echo "Attempt $i: SSH not ready, waiting 15s..."
+          sleep 15
+        done
 
-          terraform plan \
-            -out=tfplan \
-            -input=false \
-            -var="key_name=$KEY_NAME" \
-            -var="sg_name=$SG_NAME" \
-            -var="public_key_content=$PUBLIC_KEY_CONTENT" \
-            -no-color
+    - name: Install Nginx
+      run: |
+        echo "Installing Nginx on the instance..."
+        scp -o StrictHostKeyChecking=no -i ~/.ssh/terraform_key \
+          install-nginx.sh ubuntu@$INSTANCE_IP:/tmp/
+        
+        ssh -o StrictHostKeyChecking=no -i ~/.ssh/terraform_key \
+          ubuntu@$INSTANCE_IP 'chmod +x /tmp/install-nginx.sh && /tmp/install-nginx.sh'
 
-      # Step 8: Terraform Apply
-      - name: Terraform Apply
-        run: terraform apply -input=false -auto-approve tfplan
-
-      # Step 9: Get EC2 Public IP
-      - name: Get EC2 Public IP
-        id: get_ip
-        run: |
-          echo "PUBLIC_IP=$(terraform output -raw public_ip)" >> $GITHUB_ENV
-
-      # Step 9.5: Debug Instance and Security Group
-      - name: Debug Instance Status
-        run: |
-          echo "Instance ID: $(terraform output -raw instance_id)"
-          echo "Public IP: $PUBLIC_IP"
-          echo "Public DNS: $(terraform output -raw public_dns)"
-          
-          # Check instance status
-          aws ec2 describe-instances --instance-ids $(terraform output -raw instance_id) \
-            --query 'Reservations[0].Instances[0].State.Name' --output text
-          
-          # Check security group rules
-          SG_ID=$(aws ec2 describe-instances --instance-ids $(terraform output -raw instance_id) \
-            --query 'Reservations[0].Instances[0].SecurityGroups[0].GroupId' --output text)
-          echo "Security Group ID: $SG_ID"
-          aws ec2 describe-security-groups --group-ids $SG_ID \
-            --query 'SecurityGroups[0].IpPermissions[?FromPort==`22`]'
-          
-          # Test key pair validation
-          ssh-keygen -y -f private_key.pem > public_key_from_private.pub || echo "❌ Invalid private key format"
-          echo "Public key from private key:"
-          cat public_key_from_private.pub 2>/dev/null || echo "Could not extract public key"
-
-      # Step 10: Wait for SSH
-      - name: Wait for SSH
-        run: |
-          echo "Waiting for SSH on $PUBLIC_IP..."
-          
-          # Wait for instance to be running
-          aws ec2 wait instance-running --instance-ids $(terraform output -raw instance_id)
-          
-          for i in $(seq 1 20); do
-            if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-                -i private_key.pem ubuntu@"$PUBLIC_IP" 'echo SSH_OK' >/dev/null 2>&1; then
-              echo "✅ SSH is ready"
-              exit 0
-            fi
-            echo "Attempt $i: SSH not ready, retrying in 15s..."
-            nc -zv $PUBLIC_IP 22 2>&1 || echo "Port 22 not reachable"
-            sleep 15
-          done
-          
-          echo "❌ SSH failed after 20 attempts. Final debug:"
-          ssh -vvv -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-              -i private_key.pem ubuntu@"$PUBLIC_IP" 'echo SSH_OK' 2>&1 || true
-          exit 1
-
-      # Step 11: SSH and Install NGINX
-      - name: SSH and install NGINX
-        run: |
-          echo "Installing NGINX on EC2..."
-          ssh -o StrictHostKeyChecking=no -i private_key.pem ubuntu@"$PUBLIC_IP" <<'EOF'
-            set -e
-            sudo apt-get update -y
-            sudo apt-get install -y nginx
-            sudo systemctl enable nginx
-            sudo systemctl start nginx
-            echo "✅ NGINX installed and running!"
-          EOF
-
-      # Step 12: Cleanup Private Key
-      - name: Cleanup key
-        if: always()
-        run: rm -f private_key.pem
+    - name: Verify installation
+      run: |
+        echo "Verifying Nginx installation..."
+        ssh -o StrictHostKeyChecking=no -i ~/.ssh/terraform_key \
+          ubuntu@$INSTANCE_IP 'curl -s http://localhost | head -5'
+        
+        echo "✅ Deployment completed successfully!"
+        echo "🌐 Access your server at: http://$INSTANCE_IP"

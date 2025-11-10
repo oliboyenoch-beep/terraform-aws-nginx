@@ -1,25 +1,14 @@
-# =======================
-# Provider
-# =======================
 provider "aws" {
-  region = var.aws_region
+  region = "us-east-1"
 }
 
-# =======================
-# Data Sources
-# =======================
 data "aws_ami" "ubuntu" {
   most_recent = true
-  owners      = ["099720109477"] # Canonical
+  owners      = ["099720109477"]
   
   filter {
     name   = "name"
     values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
-  }
-  
-  filter {
-    name   = "virtualization-type"
-    values = ["hvm"]
   }
 }
 
@@ -34,32 +23,23 @@ data "aws_subnets" "default" {
   }
 }
 
-# =======================
-# Key Pair (Dynamic from CI/CD)
-# =======================
-resource "aws_key_pair" "dynamic_key" {
+resource "aws_key_pair" "web_key" {
   key_name   = var.key_name
-  public_key = var.public_key_content
+  public_key = var.public_key
 }
 
-# =======================
-# Security Group
-# =======================
 resource "aws_security_group" "web_sg" {
-  name        = var.sg_name
-  description = "Allow SSH and HTTP access"
+  name_prefix = "web-sg-"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
-    description = "Allow SSH"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = [var.allowed_ssh_cidr]
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   ingress {
-    description = "Allow HTTP"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
@@ -74,22 +54,16 @@ resource "aws_security_group" "web_sg" {
   }
 }
 
-# =======================
-# EC2 Instance
-# =======================
 resource "aws_instance" "web" {
   ami                    = data.aws_ami.ubuntu.id
-  instance_type          = var.instance_type
-  key_name               = aws_key_pair.dynamic_key.key_name
+  instance_type          = "t2.micro"
+  key_name               = aws_key_pair.web_key.key_name
   vpc_security_group_ids = [aws_security_group.web_sg.id]
   subnet_id              = data.aws_subnets.default.ids[0]
   
   associate_public_ip_address = true
 
   tags = {
-    Name = "terraform-ec2-web"
+    Name = "nginx-web-server"
   }
-  
-  # Trigger deployment
 }
-

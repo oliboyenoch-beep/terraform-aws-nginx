@@ -1,52 +1,9 @@
-variable "aws_region" {
-  description = "AWS region to deploy resources"
-  type        = string
-  default     = "us-east-1"
-}
-
-variable "key_pair_name" {
-  description = "Name of the EC2 key pair"
-  type        = string
-  default     = "john-ec2-key"
-}
-
-variable "public_key_path" {
-  description = "Path to your local SSH public key"
-  type        = string
-  default     = "~/.ssh/id_rsa.pub"
-}
-
-variable "allowed_ssh_cidr" {
-  description = "CIDR block allowed to SSH (your IP)"
-  type        = string
-  default     = "0.0.0.0/0"
-}
-
-variable "public_key_content" {
-  description = "Public SSH key content used for EC2 key pair"
-  type        = string
-}
-
 variable "key_name" {
-  description = "Name for the AWS key pair"
+  description = "Name for the SSH key pair"
   type        = string
-  default     = "terraform-key"
 }
 
-variable "sg_name" {
-  description = "Name for the security group"
+variable "public_key" {
+  description = "SSH public key content"
   type        = string
-  default     = "terraform-web-sg"
-}
-
-variable "instance_type" {
-  description = "EC2 instance type"
-  type        = string
-  default     = "t2.micro"
-}
-
-variable "enforce_free_tier" {
-  description = "Whether to enforce free tier eligibility"
-  type        = bool
-  default     = false
 }
