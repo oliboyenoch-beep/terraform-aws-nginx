@@ -26,3 +26,15 @@ variable "public_key_content" {
   description = "Public SSH key content used for EC2 key pair"
   type        = string
 }
+
+variable "key_name" {
+  description = "Name for the AWS key pair"
+  type        = string
+  default     = "terraform-key"
+}
+
+variable "sg_name" {
+  description = "Name for the security group"
+  type        = string
+  default     = "terraform-web-sg"
+}
