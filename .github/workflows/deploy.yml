@@ -1,4 +1,4 @@
-name: Deploy Infrastructure and Install Nginx
+name: Deploy Free Tier Infrastructure
 
 on:
   push:
@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout code
+    - name: Checkout repository
       uses: actions/checkout@v4
 
     - name: Setup Terraform
@@ -26,12 +26,12 @@ jobs:
 
     - name: Generate SSH key pair
       run: |
-        ssh-keygen -t rsa -b 4096 -f ~/.ssh/terraform_key -N ""
-        chmod 600 ~/.ssh/terraform_key
+        ssh-keygen -t rsa -b 2048 -f terraform_key -N ""
+        chmod 600 terraform_key
         
         TIMESTAMP=$(date +%s)
-        KEY_NAME="terraform-key-${TIMESTAMP}"
-        PUBLIC_KEY=$(cat ~/.ssh/terraform_key.pub)
+        KEY_NAME="free-tier-key-${TIMESTAMP}"
+        PUBLIC_KEY=$(cat terraform_key.pub)
         
         echo "KEY_NAME=$KEY_NAME" >> $GITHUB_ENV
         echo "PUBLIC_KEY=$PUBLIC_KEY" >> $GITHUB_ENV
@@ -54,37 +54,41 @@ jobs:
         echo "INSTANCE_IP=$(terraform output -raw public_ip)" >> $GITHUB_ENV
         echo "INSTANCE_ID=$(terraform output -raw instance_id)" >> $GITHUB_ENV
 
-    - name: Wait for instance to be ready
+    - name: Wait for instance
       run: |
         echo "Waiting for instance to be running..."
         aws ec2 wait instance-running --instance-ids $INSTANCE_ID
         
-        echo "Waiting for SSH to be available..."
-        for i in {1..20}; do
-          if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
-             -i ~/.ssh/terraform_key ubuntu@$INSTANCE_IP 'echo "SSH Ready"' 2>/dev/null; then
+        echo "Waiting for SSH..."
+        for i in {1..30}; do
+          if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+             -i terraform_key ec2-user@$INSTANCE_IP 'echo "Ready"' 2>/dev/null; then
             echo "SSH is ready!"
             break
           fi
-          echo "Attempt $i: SSH not ready, waiting 15s..."
-          sleep 15
+          echo "Attempt $i/30: Waiting 10s..."
+          sleep 10
         done
 
     - name: Install Nginx
       run: |
-        echo "Installing Nginx on the instance..."
-        scp -o StrictHostKeyChecking=no -i ~/.ssh/terraform_key \
-          install-nginx.sh ubuntu@$INSTANCE_IP:/tmp/
+        echo "Copying install script..."
+        scp -o StrictHostKeyChecking=no -i terraform_key \
+          install-nginx.sh ec2-user@$INSTANCE_IP:/tmp/
         
-        ssh -o StrictHostKeyChecking=no -i ~/.ssh/terraform_key \
-          ubuntu@$INSTANCE_IP 'chmod +x /tmp/install-nginx.sh && /tmp/install-nginx.sh'
+        echo "Installing Nginx..."
+        ssh -o StrictHostKeyChecking=no -i terraform_key \
+          ec2-user@$INSTANCE_IP 'chmod +x /tmp/install-nginx.sh && /tmp/install-nginx.sh'
 
-    - name: Verify installation
+    - name: Test deployment
       run: |
-        echo "Verifying Nginx installation..."
-        ssh -o StrictHostKeyChecking=no -i ~/.ssh/terraform_key \
-          ubuntu@$INSTANCE_IP 'curl -s http://localhost | head -5'
+        echo "Testing Nginx..."
+        ssh -o StrictHostKeyChecking=no -i terraform_key \
+          ec2-user@$INSTANCE_IP 'curl -s http://localhost'
         
-        echo "✅ Deployment completed successfully!"
-        echo "🌐 Access your server at: http://$INSTANCE_IP"
-        # Deployment complete
+        echo "✅ Deployment successful!"
+        echo "🌐 Access at: http://$INSTANCE_IP"
+
+    - name: Cleanup
+      if: always()
+      run: rm -f terraform_key terraform_key.pub
