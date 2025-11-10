@@ -34,6 +34,18 @@ data "aws_subnets" "default" {
   }
 }
 
+data "aws_ec2_instance_types" "free_tier" {
+  filter {
+    name   = "free-tier-eligible"
+    values = ["true"]
+  }
+  
+  filter {
+    name   = "current-generation"
+    values = ["true"]
+  }
+}
+
 # =======================
 # Key Pair (Dynamic from CI/CD)
 # =======================
@@ -79,7 +91,7 @@ resource "aws_security_group" "web_sg" {
 # =======================
 resource "aws_instance" "web" {
   ami                    = data.aws_ami.ubuntu.id
-  instance_type          = "t2.micro"
+  instance_type          = data.aws_ec2_instance_types.free_tier.instance_types[0]
   key_name               = aws_key_pair.dynamic_key.key_name
   vpc_security_group_ids = [aws_security_group.web_sg.id]
   subnet_id              = data.aws_subnets.default.ids[0]
