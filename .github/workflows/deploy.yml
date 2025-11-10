@@ -14,11 +14,11 @@ jobs:
       AWS_REGION: us-east-1
 
     steps:
-      # Step 1: Checkout repository (ensures latest code)
+      # Step 1: Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # ensures full history, avoids stale state
+          fetch-depth: 0
 
       # Step 2: Setup Terraform
       - name: Setup Terraform
@@ -32,9 +32,9 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
 
-      # Step 4: Terraform Init (reconfigure ensures no stale state)
+      # Step 4: Terraform Init
       - name: Terraform Init
         run: terraform init -reconfigure
 
@@ -42,27 +42,27 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
-      # Step 6: Terraform Plan (create tfplan)
+      # ✅ Step 6: Terraform Plan with fully dynamic KEY + SG names
       - name: Terraform Plan
         env:
-          TF_LOG_PATH: ${{ github.workspace }}/tf.log
+          PUBLIC_KEY_CONTENT: ${{ secrets.PUBLIC_SSH_KEY }}
         run: |
-          set -o pipefail
+          TIMESTAMP=$(date +%s)
+          RANDOM_ID=$(openssl rand -hex 2)
+
+          KEY_NAME="john-ec2-key-${TIMESTAMP}-${RANDOM_ID}"
+          SG_NAME="nginx-sg-${TIMESTAMP}-${RANDOM_ID}"
+
+          echo "KEY_NAME=$KEY_NAME" >> $GITHUB_ENV
+          echo "SG_NAME=$SG_NAME" >> $GITHUB_ENV
+
           terraform plan \
             -out=tfplan \
             -input=false \
-            -var="public_key_content=${{ secrets.PUBLIC_SSH_KEY }}" \
-            -no-color || {
-              echo "Terraform plan failed. Dumping TF log."
-              terraform plan -no-color -var="public_key_content=${{ secrets.PUBLIC_SSH_KEY }}" || true
-              if [ -f tf.log ]; then
-                echo "---- TF_LOG (last 200 lines) ----"
-                tail -n 200 tf.log || true
-              fi
-              exit 1
-          }
-          echo "✅ Terraform plan succeeded — summary below:"
-          terraform show -no-color tfplan | sed -n '1,200p'
+            -var="key_name=$KEY_NAME" \
+            -var="sg_name=$SG_NAME" \
+            -var="public_key_content=$PUBLIC_KEY_CONTENT" \
+            -no-color
 
       # Step 7: Terraform Apply
       - name: Terraform Apply
@@ -71,15 +71,16 @@ jobs:
       # Step 8: Get EC2 Public IP
       - name: Get EC2 Public IP
         id: get_ip
-        run: echo "PUBLIC_IP=$(terraform output -raw public_ip)" >> $GITHUB_ENV
+        run: |
+          echo "PUBLIC_IP=$(terraform output -raw public_ip)" >> $GITHUB_ENV
 
-      # Step 9: Create private key file
+      # Step 9: Create Private Key File
       - name: Create private key file
         run: |
           printf '%s\n' "${{ secrets.EC2_SSH_KEY }}" > private_key.pem
           chmod 600 private_key.pem
 
-      # Step 10: Wait for SSH to become available
+      # Step 10: Wait for SSH
       - name: Wait for SSH
         run: |
           echo "Waiting for SSH on $PUBLIC_IP..."
@@ -95,7 +96,7 @@ jobs:
           echo "❌ SSH did not become available" >&2
           exit 1
 
-      # Step 11: SSH and install NGINX
+      # Step 11: SSH and Install NGINX
       - name: SSH and install NGINX
         run: |
           echo "Installing NGINX on EC2..."
@@ -105,11 +106,10 @@ jobs:
             sudo apt-get install -y nginx
             sudo systemctl enable nginx
             sudo systemctl start nginx
-            sudo systemctl status nginx --no-pager
             echo "✅ NGINX installed and running!"
           EOF
 
-      # Step 12: Cleanup private key
+      # Step 12: Cleanup Private Key
       - name: Cleanup key
         if: always()
         run: rm -f private_key.pem

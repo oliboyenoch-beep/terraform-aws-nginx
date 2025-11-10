@@ -1,40 +1,28 @@
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-
-  required_version = ">= 1.5.0"
-
-  # Save Terraform state file locally instead of S3 or DynamoDB
-  backend "local" {
-    path = "terraform.tfstate"
-  }
-}
-
-# Configure the AWS provider
+# =======================
+# Provider
+# =======================
 provider "aws" {
   region = var.aws_region
 }
 
-# Get default VPC
-data "aws_vpc" "default" {
-  default = true
-}
-
-# Create Key Pair using the public key passed from GitHub or local variable
-resource "aws_key_pair" "ec2_key" {
-  key_name   = var.key_pair_name
+# =======================
+# Key Pair (Dynamic from CI/CD)
+# =======================
+resource "aws_key_pair" "dynamic_key" {
+  key_name   = var.key_name
   public_key = var.public_key_content
 }
 
-# Security Group for SSH + HTTP
+# =======================
+# Security Group
+# =======================
 resource "aws_security_group" "web_sg" {
-  name        = "nginx-sg"
-  description = "Allow SSH and HTTP"
-  vpc_id      = data.aws_vpc.default.id
+  name        = var.sg_name
+  description = "Allow SSH and HTTP access"
+  
+  # If you have a fixed VPC, keep this.
+  # If not, remove this line and let AWS choose default VPC.
+  vpc_id = "vpc-06e02341c19b1b9dc"
 
   ingress {
     description = "Allow SSH"
@@ -58,31 +46,43 @@ resource "aws_security_group" "web_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-
-  tags = {
-    Name = "nginx-sg"
-  }
 }
 
-# EC2 Instance - Ubuntu + Nginx
-resource "aws_instance" "nginx_server" {
-  ami                    = "ami-0360c520857e3138f" # Ubuntu 22.04 LTS (us-east-1)
-  instance_type          = "t3.micro"
-  key_name               = aws_key_pair.ec2_key.key_name
+# =======================
+# EC2 Instance
+# =======================
+resource "aws_instance" "web" {
+  ami           = "ami-0360c520857e3138f"   # Ubuntu 22.04 LTS (us-east-1)
+  instance_type = "t3.micro"                # Your preferred type
+  key_name      = aws_key_pair.dynamic_key.key_name
   vpc_security_group_ids = [aws_security_group.web_sg.id]
 
   tags = {
-    Name = "terraform-nginx-server"
+    Name = "terraform-ec2-web"
+  }
+
+  # Remove if CI/CD is handling NGINX installation (your pipeline already does)
+  provisioner "remote-exec" {
+    inline = [
+      "sudo apt-get update -y",
+      "sudo apt-get install -y nginx",
+      "sudo systemctl enable nginx",
+      "sudo systemctl start nginx"
+    ]
+
+    connection {
+      type        = "ssh"
+      user        = "ubuntu"
+      private_key = file("private_key.pem")
+      host        = self.public_ip
+    }
   }
 }
 
-# Elastic IP for stable public IP
-resource "aws_eip" "web_eip" {
-  instance = aws_instance.nginx_server.id
-  domain   = "vpc"
-
-  tags = {
-    Name = "nginx-eip"
-  }
+# =======================
+# Output
+# =======================
+output "public_ip" {
+  description = "Public IP of the EC2 instance"
+  value       = aws_instance.web.public_ip
 }
-
