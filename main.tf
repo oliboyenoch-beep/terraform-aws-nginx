@@ -6,6 +6,35 @@ provider "aws" {
 }
 
 # =======================
+# Data Sources
+# =======================
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"] # Canonical
+  
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+  }
+  
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
+data "aws_vpc" "default" {
+  default = true
+}
+
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
+# =======================
 # Key Pair (Dynamic from CI/CD)
 # =======================
 resource "aws_key_pair" "dynamic_key" {
@@ -19,10 +48,7 @@ resource "aws_key_pair" "dynamic_key" {
 resource "aws_security_group" "web_sg" {
   name        = var.sg_name
   description = "Allow SSH and HTTP access"
-  
-  # If you have a fixed VPC, keep this.
-  # If not, remove this line and let AWS choose default VPC.
-  vpc_id = "vpc-06e02341c19b1b9dc"
+  vpc_id      = data.aws_vpc.default.id
 
   ingress {
     description = "Allow SSH"
@@ -52,10 +78,13 @@ resource "aws_security_group" "web_sg" {
 # EC2 Instance
 # =======================
 resource "aws_instance" "web" {
-  ami           = "ami-0360c520857e3138f"   # Ubuntu 22.04 LTS (us-east-1)
-  instance_type = "t3.micro"                # Your preferred type
-  key_name      = aws_key_pair.dynamic_key.key_name
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = "t3.micro"
+  key_name               = aws_key_pair.dynamic_key.key_name
   vpc_security_group_ids = [aws_security_group.web_sg.id]
+  subnet_id              = data.aws_subnets.default.ids[0]
+  
+  associate_public_ip_address = true
 
   tags = {
     Name = "terraform-ec2-web"
