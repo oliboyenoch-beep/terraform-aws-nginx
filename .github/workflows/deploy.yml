@@ -80,20 +80,51 @@ jobs:
           printf '%s\n' "${{ secrets.EC2_SSH_KEY }}" > private_key.pem
           chmod 600 private_key.pem
 
+      # Step 9.5: Debug Instance and Security Group
+      - name: Debug Instance Status
+        run: |
+          echo "Instance ID: $(terraform output -raw instance_id)"
+          echo "Public IP: $PUBLIC_IP"
+          echo "Public DNS: $(terraform output -raw public_dns)"
+          
+          # Check instance status
+          aws ec2 describe-instances --instance-ids $(terraform output -raw instance_id) \
+            --query 'Reservations[0].Instances[0].State.Name' --output text
+          
+          # Check security group rules
+          SG_ID=$(aws ec2 describe-instances --instance-ids $(terraform output -raw instance_id) \
+            --query 'Reservations[0].Instances[0].SecurityGroups[0].GroupId' --output text)
+          echo "Security Group ID: $SG_ID"
+          aws ec2 describe-security-groups --group-ids $SG_ID \
+            --query 'SecurityGroups[0].IpPermissions[?FromPort==`22`]'
+          
+          # Test key pair validation
+          ssh-keygen -y -f private_key.pem > public_key_from_private.pub || echo "❌ Invalid private key format"
+          echo "Public key from private key:"
+          cat public_key_from_private.pub 2>/dev/null || echo "Could not extract public key"
+
       # Step 10: Wait for SSH
       - name: Wait for SSH
         run: |
           echo "Waiting for SSH on $PUBLIC_IP..."
-          for i in $(seq 1 30); do
-            ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
-                -i private_key.pem ubuntu@"$PUBLIC_IP" 'echo SSH_OK' >/dev/null 2>&1 && {
-                  echo "✅ SSH is ready"
-                  exit 0
-                }
-            echo "Attempt $i: SSH not ready, retrying in 10s..."
-            sleep 10
+          
+          # Wait for instance to be running
+          aws ec2 wait instance-running --instance-ids $(terraform output -raw instance_id)
+          
+          for i in $(seq 1 20); do
+            if ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+                -i private_key.pem ubuntu@"$PUBLIC_IP" 'echo SSH_OK' >/dev/null 2>&1; then
+              echo "✅ SSH is ready"
+              exit 0
+            fi
+            echo "Attempt $i: SSH not ready, retrying in 15s..."
+            nc -zv $PUBLIC_IP 22 2>&1 || echo "Port 22 not reachable"
+            sleep 15
           done
-          echo "❌ SSH did not become available" >&2
+          
+          echo "❌ SSH failed after 20 attempts. Final debug:"
+          ssh -vvv -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+              -i private_key.pem ubuntu@"$PUBLIC_IP" 'echo SSH_OK' 2>&1 || true
           exit 1
 
       # Step 11: SSH and Install NGINX
