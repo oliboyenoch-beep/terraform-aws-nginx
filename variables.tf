@@ -38,3 +38,15 @@ variable "sg_name" {
   type        = string
   default     = "terraform-web-sg"
 }
+
+variable "instance_type" {
+  description = "EC2 instance type"
+  type        = string
+  default     = "t2.micro"
+}
+
+variable "enforce_free_tier" {
+  description = "Whether to enforce free tier eligibility"
+  type        = bool
+  default     = false
+}
