@@ -60,22 +60,5 @@ resource "aws_instance" "web" {
   tags = {
     Name = "terraform-ec2-web"
   }
-
-  # Remove if CI/CD is handling NGINX installation (your pipeline already does)
-  provisioner "remote-exec" {
-    inline = [
-      "sudo apt-get update -y",
-      "sudo apt-get install -y nginx",
-      "sudo systemctl enable nginx",
-      "sudo systemctl start nginx"
-    ]
-
-    connection {
-      type        = "ssh"
-      user        = "ubuntu"
-      private_key = file("private_key.pem")
-      host        = self.public_ip
-    }
-  }
 }
 
