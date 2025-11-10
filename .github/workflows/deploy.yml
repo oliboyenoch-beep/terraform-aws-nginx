@@ -87,3 +87,4 @@ jobs:
         
         echo "✅ Deployment completed successfully!"
         echo "🌐 Access your server at: http://$INSTANCE_IP"
+        # Deployment complete
