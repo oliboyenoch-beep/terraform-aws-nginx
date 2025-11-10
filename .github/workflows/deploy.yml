@@ -42,10 +42,15 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
-      # ✅ Step 6: Terraform Plan with fully dynamic KEY + SG names
+      # Step 6: Generate SSH Key Pair
+      - name: Generate SSH Key Pair
+        run: |
+          ssh-keygen -t rsa -b 4096 -f private_key.pem -N ""
+          chmod 600 private_key.pem
+          echo "PUBLIC_KEY_CONTENT=$(cat private_key.pem.pub)" >> $GITHUB_ENV
+
+      # Step 7: Terraform Plan
       - name: Terraform Plan
-        env:
-          PUBLIC_KEY_CONTENT: ${{ secrets.PUBLIC_SSH_KEY }}
         run: |
           TIMESTAMP=$(date +%s)
           RANDOM_ID=$(openssl rand -hex 2)
@@ -64,21 +69,15 @@ jobs:
             -var="public_key_content=$PUBLIC_KEY_CONTENT" \
             -no-color
 
-      # Step 7: Terraform Apply
+      # Step 8: Terraform Apply
       - name: Terraform Apply
         run: terraform apply -input=false -auto-approve tfplan
 
-      # Step 8: Get EC2 Public IP
+      # Step 9: Get EC2 Public IP
       - name: Get EC2 Public IP
         id: get_ip
         run: |
           echo "PUBLIC_IP=$(terraform output -raw public_ip)" >> $GITHUB_ENV
-
-      # Step 9: Create Private Key File
-      - name: Create private key file
-        run: |
-          printf '%s\n' "${{ secrets.EC2_SSH_KEY }}" > private_key.pem
-          chmod 600 private_key.pem
 
       # Step 9.5: Debug Instance and Security Group
       - name: Debug Instance Status
