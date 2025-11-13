@@ -80,7 +80,7 @@ resource "aws_security_group" "web_sg" {
   }
 }
 
-# EC2 Instance (Free Tier)
+# EC2 Instance
 resource "aws_instance" "web_server" {
   ami                    = data.aws_ami.amazon_linux.id
   instance_type          = "t2.micro"

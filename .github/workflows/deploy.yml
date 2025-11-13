@@ -1,4 +1,4 @@
-name: Deploy Free Tier Infrastructure
+name: Deploy AWS Infrastructure
 
 on:
   push:
@@ -30,17 +30,26 @@ jobs:
         chmod 600 terraform_key
         
         TIMESTAMP=$(date +%s)
-        KEY_NAME="free-tier-key-${TIMESTAMP}"
+        KEY_NAME="aws-key-${TIMESTAMP}"
         PUBLIC_KEY=$(cat terraform_key.pub)
         
         echo "KEY_NAME=$KEY_NAME" >> $GITHUB_ENV
-        echo "PUBLIC_KEY=$PUBLIC_KEY" >> $GITHUB_ENV
+        echo "PUBLIC_KEY<<EOF" >> $GITHUB_ENV
+        echo "$PUBLIC_KEY" >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
+        
+        echo "Debug: KEY_NAME = $KEY_NAME"
+        echo "Debug: PUBLIC_KEY length = ${#PUBLIC_KEY}"
 
     - name: Terraform Init
       run: terraform init
 
     - name: Terraform Plan
       run: |
+        echo "Before terraform plan:"
+        echo "KEY_NAME variable: '$KEY_NAME'"
+        echo "PUBLIC_KEY starts with: '${PUBLIC_KEY:0:20}'"
+        
         terraform plan \
           -var="key_name=$KEY_NAME" \
           -var="public_key=$PUBLIC_KEY" \
