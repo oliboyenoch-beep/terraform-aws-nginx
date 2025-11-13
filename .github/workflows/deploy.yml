@@ -26,6 +26,7 @@ jobs:
 
     - name: Generate SSH key pair
       run: |
+        rm -f terraform_key terraform_key.pub
         ssh-keygen -t rsa -b 2048 -f terraform_key -N ""
         chmod 600 terraform_key
         
