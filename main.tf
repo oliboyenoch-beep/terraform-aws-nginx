@@ -83,7 +83,7 @@ resource "aws_security_group" "web_sg" {
 # EC2 Instance
 resource "aws_instance" "web_server" {
   ami                    = data.aws_ami.amazon_linux.id
-  instance_type          = "t2.micro"
+  instance_type          = "t3.micro"
   key_name               = aws_key_pair.web_key.key_name
   vpc_security_group_ids = [aws_security_group.web_sg.id]
   subnet_id              = data.aws_subnets.default.ids[0]
@@ -92,5 +92,9 @@ resource "aws_instance" "web_server" {
 
   tags = {
     Name = "nginx-web-server"
+  }
+
+  lifecycle {
+    ignore_changes = [ami]
   }
 }
